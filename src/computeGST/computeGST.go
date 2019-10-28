@@ -1,12 +1,19 @@
 package main
 
 import (
-    "encoding/json"
-    "fmt"
-    "io/ioutil"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"log"
+	"net/http"
 	"os"
-	"strconv"
-  )
+	//"strconv"
+	"github.com/gorilla/mux"
+)
+
+func homeLink(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "Welcome home!")
+}
 
 // Jurisdictions struct which contains
 // an array of Jurisdictions
@@ -46,8 +53,15 @@ type SlabRules struct{
 	CompensationCess string `json:"compensation-cess"`
 }
 
-func getTaxQuote(jurisdictionId string, taxClassId string, salesAmount float32){
-	fmt.Printf("%s - %s - %v\n",jurisdictionId,taxClassId,salesAmount)
+type taxQuote struct {
+	JurisdictionId string `json:"jurisdictionId"`
+	TaxClassId string `json:"taxClassId"`
+	SalesAmount float32 `json:"SalesAmount"`
+	TaxAmount float32 `json:"TaxAmount"`
+}
+
+func getTaxQuote(jurisdictionId string, taxClassId string, salesAmount float32) float32{
+	//fmt.Printf("%s - %s - %v\n",jurisdictionId,taxClassId,salesAmount)
  // Open our jsonFile
  jsonFile, err := os.Open("gst-tax-slab.json")
  // if we os.Open returns an error then handle it
@@ -71,17 +85,18 @@ func getTaxQuote(jurisdictionId string, taxClassId string, salesAmount float32){
  // we iterate through every user within our users array and
  // print out the user Type, their name, and their facebook url
  // as just an example
- fmt.Println("jurisdiction, Tax Class, Slab, minimum-sales-amount, maximum-sales-amount,cgst-rate,sgst-utgst-rate,igst-rate,compensation-cess")
+ //fmt.Println("jurisdiction, Tax Class, Slab, minimum-sales-amount, maximum-sales-amount,cgst-rate,sgst-utgst-rate,igst-rate,compensation-cess")
+ var taxQuote float32 = 0.0
  for i := 0; i < len(jurisdictions.Jurisdictions); i++ {
 	 if jurisdictions.Jurisdictions[i].JurisdictionId == jurisdictionId {
 	 for ii := 0; ii < len(jurisdictions.Jurisdictions[i].Taxclasses); ii++ {
 		 if jurisdictions.Jurisdictions[i].Taxclasses[ii].TaxClassId == taxClassId {
 		 for iii := 0; iii < len(jurisdictions.Jurisdictions[i].Taxclasses[ii].Slabs); iii++ {
-				 fmt.Printf("%v - %v - %v -%v\n",jurisdictions.Jurisdictions[i].JurisdictionId, jurisdictions.Jurisdictions[i].Taxclasses[ii].TaxClassId, jurisdictions.Jurisdictions[i].Taxclasses[ii].Slabs[iii].SlabId, jurisdictions.Jurisdictions[i].Taxclasses[ii].Slabs[iii].SlabRules.MinSalesAmount)
+				 //fmt.Printf("%v - %v - %v -%v\n",jurisdictions.Jurisdictions[i].JurisdictionId, jurisdictions.Jurisdictions[i].Taxclasses[ii].TaxClassId, jurisdictions.Jurisdictions[i].Taxclasses[ii].Slabs[iii].SlabId, jurisdictions.Jurisdictions[i].Taxclasses[ii].Slabs[iii].SlabRules.MinSalesAmount)
 				 slab := jurisdictions.Jurisdictions[i].Taxclasses[ii].Slabs[iii]
 				 if slab.SlabRules.MinSalesAmount <= salesAmount && slab.SlabRules.MaxSalesAmount >= salesAmount {
-					 taxQuote := salesAmount * slab.SlabRules.IgstRate
-					 fmt.Printf("Computed GST amount is - %v @ %v of %v salesAmount\n", taxQuote, slab.SlabRules.IgstRate, salesAmount)
+					 taxQuote = salesAmount * slab.SlabRules.IgstRate
+					 //fmt.Printf("Computed GST amount is - %v @ %v of %v salesAmount\n", taxQuote, slab.SlabRules.IgstRate, salesAmount)
 					 break
 			 }
 		 } 
@@ -89,13 +104,27 @@ func getTaxQuote(jurisdictionId string, taxClassId string, salesAmount float32){
 	 }
 	}
  }
+ return taxQuote
+}
+
+func getGSTQuote(w http.ResponseWriter, r *http.Request) {
+	var newtaxQuote taxQuote
+	reqBody, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		fmt.Fprintf(w, "Kindly enter data with the event title and description only in order to update")
+	}
+	json.Unmarshal(reqBody, &newtaxQuote)
+	fmt.Println(newtaxQuote)
+	//fmt.Printf("%s - %s - %v\n",newtaxQuote.JurisdictionId, newtaxQuoteRequest.TaxClassId, newtaxQuoteRequest.SalesAmount)
+	//w.WriteHeader(http.StatusCreated)
+	newtaxQuote.TaxAmount = getTaxQuote(newtaxQuote.JurisdictionId, newtaxQuote.TaxClassId, newtaxQuote.SalesAmount)
+	json.NewEncoder(w).Encode(newtaxQuote)
 }
 
 func main() {
-	var SAmt float32 = 0.0
-	if sAmt, err := strconv.ParseFloat(os.Args[3], 32); err == nil {
-		SAmt = float32(sAmt)
-	}
-	fmt.Printf("%s - %s - %v\n",os.Args[1], os.Args[2], SAmt)
-	getTaxQuote(os.Args[1], os.Args[2], SAmt)
+	//initEvents()
+	router := mux.NewRouter().StrictSlash(true)
+	router.HandleFunc("/", homeLink)
+	router.HandleFunc("/taxquote", getGSTQuote).Methods("POST")
+	log.Fatal(http.ListenAndServe(":8000", router))
 }
